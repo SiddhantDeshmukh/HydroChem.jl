@@ -66,26 +66,26 @@ function main1()
     plotit = plot_curve_or_heat
     if problem == "sod"
         dim = 1
-        init = init_sod
+        init = init_sod_x1!
         fillbc = fill_trans_bc
         plotit = plot_standard_sod
     elseif problem == "sod2d"
         dim = 2
-        init = init_sod
+        init = init_sod_x1!
         fillbc = fill_trans_bc
         plotit = plot_standard_sod
     elseif problem == "sod2dy"
         dim = 2
-        init = init_sod_y
+        init = init_sod_x2!
         fillbc = fill_trans_bc
         plotit = plot_standard_sod_y
     elseif problem == "ball"
         dim = 2
-        init = init_ball
+        init = init_ball!
         fillbc = fill_periodic_bc
     elseif problem == "KH"
         dim = 2
-        init = init_KH
+        init = init_KH!
         fillbc = fill_periodic_bc
     elseif problem == "KH2"
         dim = 2
@@ -139,17 +139,17 @@ function main1()
     end
 
     hydro(dim, args["nx"], args["tend"], args["folder"], init;
-          solver=solver,
-          order=args["order"],
-          integrator=integrator,
-          fillbc=fillbc,
-          plotit=plotit,
-          dtout=args["dtout"],
-          ny=args["ny"],
-          storealldata=args["storealldata"],
-          restart=args["restart"],
-          verbose=args["verbose"],
-          islog=true)
+        solver=solver,
+        order=args["order"],
+        integrator=integrator,
+        fillbc=fillbc,
+        plotit=plotit,
+        dtout=args["dtout"],
+        ny=args["ny"],
+        storealldata=args["storealldata"],
+        restart=args["restart"],
+        verbose=args["verbose"],
+        islog=true)
 
     return
 end

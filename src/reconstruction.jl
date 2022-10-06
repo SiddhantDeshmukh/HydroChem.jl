@@ -1,107 +1,79 @@
 # Requires grid.jl, flux.jl
 
 function minmod(x, y, z)
-    0.25 * abs(sign(x) + sign(y)) * (sign(x) + sign(z)) *
-        min(abs(x), abs(y), abs(z))
+  0.25 * abs(sign(x) + sign(y)) * (sign(x) + sign(z)) *
+  min(abs(x), abs(y), abs(z))
 end
 
 
-function reconstruct1st(g::Grid)
-    for k = 1:3, i = g.jlo-1:g.jhi
-        g.primsL[i, k] = g.prims[i, k]
-        g.primsR[i, k] = g.prims[i+1, k]
-    end
-    for i = g.jlo-1:g.jhi
-        g.csL[i] = g.cs[i]
-        g.csR[i] = g.cs[i+1]
-    end
-end
 
-
-function reconstruct1st(g::Grid2d, axis::Int)
-    if axis == 1
-        for k = 1:4, j = g.yjlo:g.yjhi, i = g.xjlo-1:g.xjhi
-            g.primsL[i, j, k] = g.prims[i, j, k]
-            g.primsR[i, j, k] = g.prims[i+1, j, k]
-        end
-        for j = g.yjlo:g.yjhi, i = g.xjlo-1:g.xjhi
-            g.csL[i, j] = g.cs[i, j]
-            g.csR[i, j] = g.cs[i+1, j]
-        end
-    elseif axis == 2
-        for k = 1:4, j = g.yjlo-1:g.yjhi, i = g.xjlo:g.xjhi
-            g.primsL[i, j, k] = g.prims[i, j, k]
-            g.primsR[i, j, k] = g.prims[i, j+1, k]
-        end
-        for j = g.yjlo-1:g.yjhi, i = g.xjlo:g.xjhi
-            g.csL[i, j] = g.cs[i, j]
-            g.csR[i, j] = g.cs[i, j+1]
-        end
+function reconstruct1st(g::Grid, axis::Int)
+  if axis == 1
+    for k = 1:g.nvars, j = g.i_x2_a:g.i_x2_b, i = g.i_x1_a-1:g.i_x1_b
+      g.prim_L[i, j, k] = g.cc_prim[i, j, k]
+      g.prim_R[i, j, k] = g.cc_prim[i+1, j, k]
     end
-end
-
-
-""" Interpolate prims (rhoL, rhoR, vxL, vxR, pressureL, pressureR),
-which are then used to update the cons (uL, uR) """
-function reconstruct2nd(g::Grid; theta::Float64=1.5)
-    cdiff = similar(g.prims)
-    # NOTE: g.rhoL, g.vxL, and g.pressureL are links to the rows in
-    # g.primsL, so they update along with it.
-    for k = 1:3
-        c = @view g.prims[:, k]     # c = rho, vx, pressure for k = 1, 2, 3
-        for i = g.jlo-1:g.jhi+1
-            cdiff[i, k] = 0.5 * minmod(theta * (c[i] - c[i-1]),
-                                       0.5 * (c[i+1] - c[i-1]),
-                                       theta * (c[i+1] - c[i]))
-        end
+    for j = g.i_x2_a:g.i_x2_b, i = g.i_x1_a-1:g.i_x1_b
+      g.cs_L[i, j] = g.cs[i, j]
+      g.cs_R[i, j] = g.cs[i+1, j]
     end
-    for k = 1:3, i = g.jlo-1:g.jhi
-        g.primsL[i, k] = g.prims[i, k] + cdiff[i, k]
-        g.primsR[i, k] = g.prims[i+1, k] - cdiff[i+1, k]
+  elseif axis == 2
+    for k = 1:g.nvars, j = g.i_x2_a-1:g.i_x2_b, i = g.i_x1_a:g.i_x1_b
+      g.prim_L[i, j, k] = g.cc_prim[i, j, k]
+      g.prim_R[i, j, k] = g.cc_prim[i, j+1, k]
     end
-    for i = g.jlo-1:g.jhi
-        g.csL[i] = prim2cs(g.rhoL[i], g.pressureL[i], g.gamma)
-        g.csR[i] = prim2cs(g.rhoR[i], g.pressureR[i], g.gamma)
+    for j = g.i_x2_a-1:g.i_x2_b, i = g.i_x1_a:g.i_x1_b
+      g.cs_L[i, j] = g.cs[i, j]
+      g.cs_R[i, j] = g.cs[i, j+1]
     end
+  end
 end
 
 
 """ Interpolate primitive variables (ρ, vx, vy, p, cs) in the x and y components """
-function reconstruct2nd(g::Grid2d, axis::Int; theta::Float64=1.5)
-    cdiff = similar(g.prims)
-    if axis == 1
-        for k = 1:4
-            c = @view g.prims[:, :, k]     # c = rho, vx, vy, pressure for k = 1, 2, 3, 4
-            for j = g.yjlo:g.yjhi, i = g.xjlo-1:g.xjhi+1
-                cdiff[i, j, k] = 0.5 * minmod(theta * (c[i, j] - c[i-1, j]),
-                                            0.5 * (c[i+1, j] - c[i-1, j]),
-                                            theta * (c[i+1, j] - c[i, j]))
-            end
-        end
-        for k = 1:4, j = g.yjlo:g.yjhi, i = g.xjlo-1:g.xjhi
-            g.primsL[i, j, k] = g.prims[i, j, k] + cdiff[i, j, k]
-            g.primsR[i, j, k] = g.prims[i+1, j, k] - cdiff[i+1, j, k]
-        end
-        for j = g.yjlo:g.yjhi, i = g.xjlo-1:g.xjhi
-            g.csL[i, j] = prim2cs(g.rhoL[i, j], g.pressureL[i, j], g.gamma)
-            g.csR[i, j] = prim2cs(g.rhoR[i, j], g.pressureR[i, j], g.gamma)
-        end
-    elseif axis == 2
-        for k = 1:4
-            c = @view g.prims[:, :, k]     # c = rho, vx, vy, pressure for k = 1, 2, 3, 4
-            for j = g.yjlo-1:g.yjhi+1, i = g.xjlo:g.xjhi
-                cdiff[i, j, k] = 0.5 * minmod(theta * (c[i, j] - c[i, j-1]),
-                                            0.5 * (c[i, j+1] - c[i, j-1]),
-                                            theta * (c[i, j+1] - c[i, j]))
-            end
-        end
-        for k = 1:4, j = g.yjlo-1:g.yjhi, i = g.xjlo:g.xjhi
-            g.primsL[i, j, k] = g.prims[i, j, k] + cdiff[i, j, k]
-            g.primsR[i, j, k] = g.prims[i, j+1, k] - cdiff[i, j+1, k]
-        end
-        for j = g.yjlo-1:g.yjhi, i = g.xjlo:g.xjhi
-            g.csL[i, j] = prim2cs(g.rhoL[i, j], g.pressureL[i, j], g.gamma)
-            g.csR[i, j] = prim2cs(g.rhoR[i, j], g.pressureR[i, j], g.gamma)
-        end
+function reconstruct2nd(g::Grid, axis::Int; theta::Float64=1.5)
+  println("Inside reconstruct2nd")
+  cdiff = zero(g.cc_prim)
+  if axis == 1
+    for k = 1:g.nvars  # reconstruct everything, including passive scalars
+      c = @view g.cc_prim[:, :, k]     # c = rho, vx, vy, vz, pressure for k = 1:5
+      @show k, c[g.mid_x1, g.mid_x2]
+      for j = g.i_x2_a:g.i_x2_b, i = g.i_x1_a-1:g.i_x1_b+1
+        cdiff[i, j, k] = 0.5 * minmod(theta * (c[i, j] - c[i-1, j]),
+          0.5 * (c[i+1, j] - c[i-1, j]),
+          theta * (c[i+1, j] - c[i, j]))
+      end
     end
+    for i = g.i_x1_a-1:g.i_x1_b
+      @. g.prim_L[i, g.i_x2_a:g.i_x2_b, :] = g.cc_prim[i, g.i_x2_a:g.i_x2_b, :] + cdiff[i, g.i_x2_a:g.i_x2_b, :]
+      @. g.prim_R[i, g.i_x2_a:g.i_x2_b, :] = g.cc_prim[i+1, g.i_x2_a:g.i_x2_b, :] - cdiff[i+1, g.i_x2_a:g.i_x2_b, :]
+    end
+    # @show g.rho_L[g.mid_x1, g.mid_x2, :], g.p_L[g.mid_x1, g.mid_x2, :], g.rho_R[g.mid_x1, g.mid_x2, :], g.p_R[g.mid_x1, g.mid_x2, :]
+    # @show g.prim_L[g.mid_x1, g.mid_x2, :]
+    # @show g.prim_R[g.mid_x1, g.mid_x2, :]
+    # @show cdiff[g.mid_x1, g.mid_x2, :]
+    # @show g.cc_prim[g.mid_x1, g.mid_x2, :]
+    # exit()
+    for j = g.i_x2_a:g.i_x2_b, i = g.i_x1_a-1:g.i_x1_b
+      g.cs_L[i, j] = prim2cs(g.rho_L[i, j], g.p_L[i, j], g.gamma)
+      g.cs_R[i, j] = prim2cs(g.rho_R[i, j], g.p_R[i, j], g.gamma)
+    end
+  elseif axis == 2
+    for k = 1:g.nvars
+      c = @view g.cc_prim[:, :, k]     # c = rho, vx, vy, vz, pressure for k = 1:5
+      for j = g.i_x2_a-1:g.i_x2_b+1, i = g.i_x1_a:g.i_x1_b
+        cdiff[i, j, k] = 0.5 * minmod(theta * (c[i, j] - c[i, j-1]),
+          0.5 * (c[i, j+1] - c[i, j-1]),
+          theta * (c[i, j+1] - c[i, j]))
+      end
+    end
+    for k = 1:g.nvars, j = g.i_x2_a-1:g.i_x2_b, i = g.i_x1_a:g.i_x1_b
+      g.prim_L[i, j, k] = g.cc_prim[i, j, k] + cdiff[i, j, k]
+      g.prim_R[i, j, k] = g.cc_prim[i, j+1, k] - cdiff[i, j+1, k]
+    end
+    for j = g.i_x2_a-1:g.i_x2_b, i = g.i_x1_a:g.i_x1_b
+      g.cs_L[i, j] = prim2cs(g.rho_L[i, j], g.p_L[i, j], g.gamma)
+      g.cs_R[i, j] = prim2cs(g.rho_R[i, j], g.p_R[i, j], g.gamma)
+    end
+  end
 end

@@ -1,104 +1,82 @@
-""" From primilary variables (rho, vel, pressure) to conservative variables """
-function prim2cons!(ρ, vel, pressure, u::Matrix{Float64}, gamma::Float64)
-    u[:, 1] .= ρ
-    u[:, 2] .= ρ .* vel
-    @. u[:, 3] = pressure / (gamma - 1) + 0.5 * ρ * vel^2
-    return
+""" 2d: From primitive variables (rho, vel, pressure) to conservative variables """
+function prim2cons!(ρ, v_x1, v_x2, v_x3, p, cons::Array{Float64,3}, gamma::Float64)
+  @. cons[:, :, 1] = ρ  # density -> density
+  @. cons[:, :, 2] = ρ * v_x1  # velocity -> mass flux
+  @. cons[:, :, 3] = ρ * v_x2  # velocity -> mass flux
+  @. cons[:, :, 4] = ρ * v_x3  # velocity -> mass flux
+  @. cons[:, :, 5] = p / (gamma - 1) + 0.5 * ρ * (v_x1^2 + v_x2^2 + v_x3^2)  # pressure -> energy
+  return cons
 end
 
-function prim2cons(g::Grid)
-    prim2cons!(g.rho, g.vx, g.pressure, g.u, g.gamma)
-    return
-end
-
-
-""" 2d: From primilary variables (rho, vel, pressure) to conservative variables """
-function prim2cons!(ρ, vx, vy, pressure, u::Array{Float64, 3}, gamma::Float64)
-    u[:, :, 1] .= ρ
-    u[:, :, 2] .= ρ .* vx
-    u[:, :, 3] .= ρ .* vy
-    @. u[:, :, 4] = pressure / (gamma - 1) + 0.5 * ρ * (vx^2 + vy^2)
-    return
-end
-
-function prim2cons(g::Grid2d)
-    prim2cons!(g.rho, g.vx, g.vy, g.pressure, g.u, g.gamma)
-    return
+function prim2cons!(g::Grid; convert_centres=true, convert_interfaces=false)
+  if convert_centres
+    prim2cons!(g.rho, g.v_x1, g.v_x2, g.v_x3, g.p, g.cc_cons, g.gamma)
+  end
+  if convert_interfaces
+    prim2cons!(g.rho_L, g.v_x1_L, g.v_x2_L, g.v_x3_L, g.p_L, g.cons_L, g.gamma)
+    prim2cons!(g.rho_R, g.v_x1_R, g.v_x2_R, g.v_x3_L, g.p_R, g.cons_R, g.gamma)
+  end
+  return g
 end
 
 
 """ From prims to sound speed """
-function prim2cs(ρ::Float64, pressure::Float64, γ::Float64)
-    return sqrt(γ * pressure / ρ)
+function prim2cs(ρ::Float64, p::Float64, γ::Float64)
+  if (ρ < 0) || (p < 0)
+    @show γ, ρ, p
+  end
+
+  return sqrt(γ * p / ρ)
 end
 
-
-""" Reconstruct rho, vel, E, epsilon, and pressure from g.u """
-function cons2prim(g::Grid)
-    g.rho .= g.u[:, 1]
-    g.vx .= g.u[:, 2] ./ g.rho
-    g.E .= g.u[:, 3]
-    @. g.epsilon = g.E / g.rho - 0.5 * g.vx^2
-    @. g.pressure = g.lambda * g.rho * g.epsilon
-    @. g.cs = sqrt(g.gamma * g.pressure / g.rho)
-    return nothing
-end
-
-
-""" 2d: Reconstruct rho, vel, E, epsilon, and pressure from g.u """
-function cons2prim(g::Grid2d)
-    g.rho .= g.u[:, :, 1]
-    g.vx .= g.u[:, :, 2] ./ g.rho
-    g.vy .= g.u[:, :, 3] ./ g.rho
-    g.E .= g.u[:, :, 4]
-    @. g.epsilon = g.E / g.rho - 0.5 * (g.vx^2 + g.vy^2)
-    @. g.pressure = g.lambda * g.rho * g.epsilon
-    @. g.cs = sqrt(g.gamma * g.pressure / g.rho)
-    return nothing
-end
-
-
-""" Calculate flux from prims (rho, vel, pressure) """
-function calc_flux!(rho, vel, pressure, gamma::Float64, fu)
-    @. fu[:, 1] = rho * vel
-    @. fu[:, 2] = rho * vel * vel + pressure
-    @. fu[:, 3] = (pressure / (gamma - 1) + 0.5 * rho * vel^2 + pressure) * vel
-end
-
-function calc_flux(rho, vel, pressure, gamma::Float64)
-    fu = Array{Float64}(undef, size(rho, 1), 3)
-    calc_flux!(rho, vel, pressure, gamma, fu)
-    return fu
-end
-
-function calc_flux(g::Grid)
-    calc_flux!(g.rho, g.vx, g.pressure, g.gamma, g.fu)
-    return g.fu
+""" 2d: Reconstruct rho, vel, E, epsilon, and pressure from g.cc_cons """
+function cons2prim!(g::Grid)
+  @. g.rho = g.cc_cons[:, :, 1]
+  @. g.v_x1 = g.cc_cons[:, :, 2] / g.rho
+  @. g.v_x2 = g.cc_cons[:, :, 3] / g.rho
+  @. g.v_x3 = g.cc_cons[:, :, 4] / g.rho
+  @. g.E = g.cc_cons[:, :, 5]
+  @. g.epsilon = g.E / g.rho - 0.5 * (g.v_x1^2 + g.v_x2^2)
+  @. g.p = g.lambda * g.rho * g.epsilon
+  @. g.cs = sqrt(g.gamma * g.p / g.rho)
+  return g
 end
 
 
 """ 2D: Calculate flux from prims (rho, vel, pressure) """
-function calc_flux!(ρ, vx, vy, pressure, γ::Float64, xfu, yfu)
-    @. begin
-        xfu[:, :, 1] = ρ * vx
-        xfu[:, :, 2] = ρ * vx^2 + pressure
-        xfu[:, :, 3] = ρ * vx * vy
-        xfu[:, :, 4] = (pressure / (γ - 1) + 0.5 * ρ * (vx^2 + vy^2) + pressure) * vx
-        yfu[:, :, 1] = ρ * vy
-        yfu[:, :, 2] = ρ * vx * vy
-        yfu[:, :, 3] = ρ * vy^2 + pressure
-        yfu[:, :, 4] = (pressure / (γ - 1) + 0.5 * ρ * (vx^2 + vy^2) + pressure) * vy
-    end
+function calc_flux!(ρ, v_x1, v_x2, v_x3, p, γ::Float64, f_cons_x1, f_cons_x2)
+  @. begin
+    # f_cons_x1[:, :, g.i_rho] = ρ * v_x1
+    # f_cons_x1[:, :, g.i_rhoun] = ρ * v_x1^2 + p
+    # f_cons_x1[:, :, g.i_rhout] = ρ * v_x1 * v_x2
+    # f_cons_x1[:, :, g.i_rhoux3] = ρ * v_x1 * v_x3
+    # f_cons_x1[:, :, g.i_rhouE] = (p / (γ - 1) + 0.5 * ρ * (v_x1^2 + v_x2^2) + p) * v_x1
+    # f_cons_x2[:, :, g.i_rho] = ρ * v_x2
+    # f_cons_x2[:, :, g.i_rhoun] = ρ * v_x1 * v_x2
+    # f_cons_x2[:, :, g.i_rhout] = ρ * v_x2^2 + p
+    # f_cons_x2[:, :, g.i_rhoux3] = ρ * v_x1 * v_x3
+    # f_cons_x2[:, :, g.i_rhouE] = (p / (γ - 1) + 0.5 * ρ * (v_x1^2 + v_x2^2) + p) * v_x2
+    f_cons_x1[:, :, 1] = ρ * v_x1
+    f_cons_x1[:, :, 2] = ρ * v_x1^2 + p
+    f_cons_x1[:, :, 3] = ρ * v_x1 * v_x2
+    f_cons_x1[:, :, 4] = ρ * v_x1 * v_x3
+    f_cons_x1[:, :, 5] = (p / (γ - 1) + 0.5 * ρ * (v_x1^2 + v_x2^2) + p) * v_x1
+    f_cons_x2[:, :, 1] = ρ * v_x2
+    f_cons_x2[:, :, 2] = ρ * v_x1 * v_x2
+    f_cons_x2[:, :, 3] = ρ * v_x2^2 + p
+    f_cons_x2[:, :, 4] = ρ * v_x1 * v_x3
+    f_cons_x2[:, :, 5] = (p / (γ - 1) + 0.5 * ρ * (v_x1^2 + v_x2^2) + p) * v_x2
+  end
 end
 
-function calc_flux(ρ, vx, vy, pressure, γ::Float64)
-    xfu = Array{Float64}(undef, size(ρ, 1), 4)
-    yfu = Array{Float64}(undef, size(ρ, 1), size(ρ, 2), 4)
-    calc_flux!(ρ, vx, vy, pressure, γ, xfu, yfu)
-    return xfu, yfu
+function calc_flux!(ρ, v_x1, v_x2, v_x3, p, γ::Float64)
+  f_cons_x1 = Array{Float64}(undef, size(ρ, 1), 4)
+  f_cons_x2 = Array{Float64}(undef, size(ρ, 1), size(ρ, 2), 4)
+  calc_flux!(ρ, v_x1, v_x2, v_x3, p, γ, f_cons_x1, f_cons_x2)
+  return f_cons_x1, f_cons_x2
 end
 
-function calc_flux(g::Grid2d)
-    calc_flux!(g.rho, g.vx, g.vy, g.pressure, g.gamma, g.xfu, g.yfu)
-    return g.xfu, g.yfu
+function calc_flux!(g::Grid)
+  calc_flux!(g.rho, g.v_x1, g.v_x2, g.v_x3, g.p, g.gamma, g.f_cons_x1, g.f_cons_x2)
+  return g.f_cons_x1, g.f_cons_x2
 end
