@@ -20,7 +20,29 @@ include("solver.jl")
 # include("hllc3.jl")
 include("integrator.jl")
 include("plot.jl")
+include("jcrn.jl")
 
+const mass_hydrogen = 1.67262171e-24  # [g]
+const mm00_abundances = Dict(
+  "H" => 12,
+  "H2" => -4,
+  "OH" => -12,
+  "C" => 8.43,  # solar
+  "O" => 8.69,  # solar
+  "N" => 7.83,
+  "CH" => -12,
+  "CO" => -12,
+  "CN" => -12,
+  "NH" => -12,
+  "NO" => -12,
+  "C2" => -12,
+  "O2" => -12,
+  "N2" => -12,
+  "M" => 11,
+  "X" => 1,
+  "Y" => 2,
+  "Z" => 3
+)
 
 """ A general-purpose hydro solver
 
@@ -81,6 +103,7 @@ function hydro(; n_x1::Int=128, n_x2::Int=1, n_g::Int=2,
   fillbc::Function=fill_trans_bc,
   plotit::Function=plot_curve_or_heat,
   dtout::Float64=0.01,
+  network_file::Union{String, Nothing}=nothing,
   storealldata::Bool=false,
   restart=-1,
   islog::Bool=false,
@@ -138,6 +161,13 @@ Boundary condition: $(fillbc)
     # New simulation
     g = init(g)         # fill I.C. for prims (without boundary)
     println("Grid initialised")
+    # Add chemical species
+    if !isnothing(network_file)
+      @show size(g.cc_prim)
+      g = add_chemical_species!(g, network_file, mm00_abundances)
+      @show size(g.cc_prim)
+      exit()
+    end
     # @show g.cc_prim[g.mid_x1, g.mid_x2, :]
     g = prim2cons!(g)
     println("prim2cons! done")
@@ -262,7 +292,7 @@ end
 
 end
 
-Hydro.hydro(n_x1=128, folder="test")
+Hydro.hydro(n_x1=128, folder="test", network_file="../res/solar_co_w05.ntw")
 
 """
 Current issues:

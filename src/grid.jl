@@ -1,5 +1,7 @@
 using Parameters
 
+include("jcrn.jl")
+
 @with_kw mutable struct Grid
   # 2D finite-volume Grid to hold all quantities
   n_x1::Int = 10
@@ -120,6 +122,84 @@ using Parameters
   v_x3_R::SubArray{Float64} = @view prim_R[:, :, i_vx3]
   p_R::SubArray{Float64} = @view prim_R[:, :, i_p]
 
+  # Chemistry (initialised with functions afterwards)
+  # TODO: Make a mutable struct to hold this and access that
+  network_file::Union{String, Nothing} = nothing
+  reaction_network::Union{ReactionSystem, Nothing} = nothing;
+  species::Union{Array, Nothing} = nothing;
+  chem_ode_prob::Union{ODEProblem, Nothing} = nothing;
+end
+
+function resize_arr(g::Grid, old_arr::Array{Float64, 3}, nvars_new::Int)
+  # Convenience method to create a new array with last dim size nvars_new > 5
+  # Used to add passive scalars (initialised to zero) to all relevant arrays,
+  # but keeping values from previous Grid for all other variables
+  @info "Resizing array..."
+  if nvars_new < 5
+    println("Error: nvars_new must be greater than 5.")
+    exit()
+  end
+  new_arr::Array{Float64, 3} = zeros(Float64, g.x1_len, g.x2_len, nvars_new)
+  @. new_arr[:, :, 1:5] = old_arr[:, :, 1:5]
+  return new_arr
+end
+
+function remake_grid!(g::Grid, n_x1::Int, n_x2::Int, n_g::Int, n_ps::Int)
+  # As of current implementation, only has functionality for adding passive
+  # scalars to arrays; future functionality should allow for extending and
+  # truncating x1, x2 sizes, but this is not handled
+  # For passive scalars, overwrite previous grid passive scalars, copying all
+  # conserved and primitive variables and allocating space for new scalars
+  # Since all passive scalar values are set to zero, the user needs to
+  # populate these separately and then recompute left & right interfaces
+  if n_x1 != g.n_x1
+    println("x1-cells: $(g.n_x1) -> $(n_x1): Currently not supported.")
+  end
+  if n_x2 != g.n_x2
+    println("x2-cells: $(g.n_x2) -> $(n_x2): Currently not supported.")
+  end
+  if n_g != g.n_g
+    println("Ghost cells: $(g.n_g) -> $(n_g): Currently not supported.")
+  end
+  if n_ps != g.n_ps
+    println("Passive scalars: $(g.n_ps) -> $(n_ps): Overwriting previous passive scalars.")
+  end
+  nvars_new::Int = 5 + n_ps
+  g.nvars = nvars_new
+  # Fill conserved and primitive variables from previous grid
+  # g.cc_cons = resize_arr(g, g.cc_cons, nvars_new)
+  g.cc_prim = resize_arr(g, g.cc_prim, nvars_new)
+
+  # Left and right interface
+  # g.cons_L = resize_arr(g, g.cons_L, nvars_new)
+  # g.cons_R = resize_arr(g, g.cons_R, nvars_new)
+  g.prim_L = resize_arr(g, g.prim_L, nvars_new)
+  g.prim_R = resize_arr(g, g.prim_R, nvars_new)
+
+  # Fluxes
+  g.f_cons_x1 = resize_arr(g, g.f_cons_x1, nvars_new)
+  g.f_cons_x2 = resize_arr(g, g.f_cons_x2, nvars_new)
+
+  g.lu = resize_arr(g, g.lu, nvars_new)
+  g.fhll = resize_arr(g, g.fhll, nvars_new)
+  return g
+end
+
+function add_chemical_species!(g::Grid, network_file::String, abundances::Dict)
+  # Read chemical network file, create reaction system
+  # Add chemical species as passive scalars in alphabetical order
+  @info "Reading reaction network..."
+  g.reaction_network = read_network_file(network_file);
+  @show species(g.reaction_network)
+  @info "Adding chemical species to Grid as passive scalars"
+  g = remake_grid!(g, g.n_x1, g.n_x2, g.n_g, length(species(g.reaction_network)))
+  
+  # Assign number densities
+  @info "Assigning number densities..."
+  for i=1:g.x1_len, j=1:g.x2_len
+    g.cc_prim[i, j, 6:g.nvars] = calculate_number_densities_arr(g.rho[i, j], abundances, str_replace.(species(g.reaction_network)))
+  end
+  return g
 end
 
 """
