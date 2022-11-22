@@ -1,6 +1,6 @@
 #!/usr/bin/env julia
 
-module Hydro
+module HydroChem
 
 export hydro, Grid, lax, hll, hllc, euler, RK2, RK3,
   init_sod_x1!, init_sod_x2!, init_ball!, init_KH!, fill_trans_bc, fill_periodic_bc,
@@ -103,7 +103,7 @@ function hydro(; n_x1::Int=128, n_x2::Int=1, n_g::Int=2,
   fillbc::Function=fill_trans_bc,
   plotit::Function=plot_curve_or_heat,
   dtout::Float64=0.01,
-  network_file::Union{String, Nothing}=nothing,
+  network_file::Union{String,Nothing}=nothing,
   storealldata::Bool=false,
   restart=-1,
   islog::Bool=false,
@@ -292,14 +292,10 @@ end
 
 end
 
-Hydro.hydro(n_x1=128, folder="test", network_file="../res/solar_co_w05.ntw")
+HydroChem.hydro(n_x1=128, folder="test", network_file="../res/solar_co_w05.ntw")
 
 """
 Current issues:
-  - cons_L & cons_R need to be properly initialised before calculating sound
-    speed in reconstruct2nd. Currently everything is just zero with sod test?
-  - include ux3 and rhoux3 everywhere!!! Indices are messed up right now!
-  - Need to use grid indices everywhere
   - Change arrays to be arr[quantity, y_idx, x_idx] to exploit column-major
     operations
   - Views in Grid don't seem to update the original array in Grid!
