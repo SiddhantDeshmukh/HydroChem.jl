@@ -39,12 +39,12 @@ end
 
 """ Second-order HLL. This should not change g.cc_cons """
 function hll(g::Grid, reconstruct::Function=reconstruct2nd)
-  println("Inside HLL solver")
+  @debug "Inside HLL solver"
   # x component
   # interpolate_x(g)
   reconstruct(g, 1)
-  println("Done reconstruction on x1")
-  # no potential sqrt error
+  @debug "Done reconstruction on x1"
+  # Left and Right states
   prim2cons!(g.rho_L, g.v_x1_L, g.v_x2_L, g.v_x3_L, g.p_L, g.cons_L, g.gamma)
   prim2cons!(g.rho_R, g.v_x1_R, g.v_x2_R, g.v_x3_R, g.p_R, g.cons_R, g.gamma)
   # alpha_plus = max.(0.0, g.v_x1_L .+ g.csL, g.v_x1_R .+ g.csR)
@@ -63,11 +63,12 @@ function hll(g::Grid, reconstruct::Function=reconstruct2nd)
   end
   alpha_minus = max.(0.0, -1.0 .* lam_minus)
   alpha_plus = max.(0.0, lam_plus)
-  calc_flux!(g.rho_L, g.v_x1_L, g.v_x2_L, g.v_x3_L, g.p_L, g.gamma, g.f_cons_x1, g.f_cons_x2)
+  calc_flux!(g.rho_L, g.v_x1_L, g.v_x2_L, g.v_x3_L, g.p_L, g.gamma, g.f_cons_x1, g.f_cons_x2; ps=g.ps)
   for k = 1:g.nvars, j = g.i_x2_a:g.i_x2_b, i = g.i_x1_a-1:g.i_x1_b
     g.fhll[i, j, k] = alpha_plus[i, j] * g.f_cons_x1[i, j, k]
   end
-  calc_flux!(g.rho_R, g.v_x1_R, g.v_x2_R, g.v_x3_R, g.p_R, g.gamma, g.f_cons_x1, g.f_cons_x2)
+  calc_flux!(g.rho_R, g.v_x1_R, g.v_x2_R, g.v_x3_R, g.p_R, g.gamma, g.f_cons_x1, g.f_cons_x2; ps=g.ps)
+  # @show size(g.fhll), size(g.cons_L), size(g.cons_R)
   for k = 1:g.nvars, j = g.i_x2_a:g.i_x2_b, i = g.i_x1_a-1:g.i_x1_b
     g.fhll[i, j, k] = (g.fhll[i, j, k] + alpha_minus[i, j] * g.f_cons_x1[i, j, k]
                        -
@@ -83,7 +84,7 @@ function hll(g::Grid, reconstruct::Function=reconstruct2nd)
   # y component
   # interpolate_y(g)
   reconstruct(g, 2)
-  println("Done reconstruction on x2")
+  @debug "Done reconstruction on x2"
   # no potential sqrt error
   prim2cons!(g.rho_L, g.v_x1_L, g.v_x2_L, g.v_x3_L, g.p_L, g.cons_L, g.gamma)
   prim2cons!(g.rho_R, g.v_x1_R, g.v_x2_R, g.v_x3_R, g.p_R, g.cons_R, g.gamma)
@@ -104,11 +105,11 @@ function hll(g::Grid, reconstruct::Function=reconstruct2nd)
   alpha_minus = max.(0.0, -1.0 .* lam_minus)
   alpha_plus = max.(0.0, lam_plus)
 
-  calc_flux!(g.rho_L, g.v_x1_L, g.v_x2_L, g.v_x3_L, g.p_L, g.gamma, g.f_cons_x1, g.f_cons_x2)
+  calc_flux!(g.rho_L, g.v_x1_L, g.v_x2_L, g.v_x3_L, g.p_L, g.gamma, g.f_cons_x1, g.f_cons_x2; ps=g.ps)
   for k = 1:g.nvars, j = g.i_x2_a-1:g.i_x2_b, i = g.i_x1_a:g.i_x1_b
     g.fhll[i, j, k] = alpha_plus[i, j] * g.f_cons_x2[i, j, k]
   end
-  calc_flux!(g.rho_R, g.v_x1_R, g.v_x2_R, g.v_x3_R, g.p_R, g.gamma, g.f_cons_x1, g.f_cons_x2)
+  calc_flux!(g.rho_R, g.v_x1_R, g.v_x2_R, g.v_x3_R, g.p_R, g.gamma, g.f_cons_x1, g.f_cons_x2; ps=g.ps)
   for k = 1:g.nvars, j = g.i_x2_a-1:g.i_x2_b, i = g.i_x1_a:g.i_x1_b
     g.fhll[i, j, k] = (g.fhll[i, j, k] +
                        alpha_minus[i, j] * g.f_cons_x2[i, j, k] -
@@ -125,6 +126,7 @@ function hll(g::Grid, reconstruct::Function=reconstruct2nd)
   for k = 1:g.nvars, j = g.i_x2_a:g.i_x2_b, i = g.i_x1_a:g.i_x1_b
     g.lu[i, j, k] += -(g.fhll[i, j, k] - g.fhll[i, j-1, k]) / g.dx2
   end
+  println(g.f_cons_x1[g.mid_x1, g.mid_x2, :])
   return g.lu
 end
 

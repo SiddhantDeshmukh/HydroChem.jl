@@ -122,15 +122,18 @@ include("jcrn.jl")
   v_x3_R::SubArray{Float64} = @view prim_R[:, :, i_vx3]
   p_R::SubArray{Float64} = @view prim_R[:, :, i_p]
 
+  # Passive scalars
+  ps::SubArray{Float64} = @view cc_prim[:, :, 6:nvars]
+
   # Chemistry (initialised with functions afterwards)
   # TODO: Make a mutable struct to hold this and access that
-  network_file::Union{String, Nothing} = nothing
-  reaction_network::Union{ReactionSystem, Nothing} = nothing;
-  species::Union{Array, Nothing} = nothing;
-  chem_ode_prob::Union{ODEProblem, Nothing} = nothing;
+  network_file::Union{String,Nothing} = nothing
+  reaction_network::Union{ReactionSystem,Nothing} = nothing
+  species::Union{Array,Nothing} = nothing
+  chem_ode_prob::Union{ODEProblem,Nothing} = nothing
 end
 
-function resize_arr(g::Grid, old_arr::Array{Float64, 3}, nvars_new::Int)
+function resize_arr(g::Grid, old_arr::Array{Float64,3}, nvars_new::Int)
   # Convenience method to create a new array with last dim size nvars_new > 5
   # Used to add passive scalars (initialised to zero) to all relevant arrays,
   # but keeping values from previous Grid for all other variables
@@ -139,7 +142,7 @@ function resize_arr(g::Grid, old_arr::Array{Float64, 3}, nvars_new::Int)
     println("Error: nvars_new must be greater than 5.")
     exit()
   end
-  new_arr::Array{Float64, 3} = zeros(Float64, g.x1_len, g.x2_len, nvars_new)
+  new_arr::Array{Float64,3} = zeros(Float64, g.x1_len, g.x2_len, nvars_new)
   @. new_arr[:, :, 1:5] = old_arr[:, :, 1:5]
   return new_arr
 end
@@ -165,14 +168,15 @@ function remake_grid!(g::Grid, n_x1::Int, n_x2::Int, n_g::Int, n_ps::Int)
     println("Passive scalars: $(g.n_ps) -> $(n_ps): Overwriting previous passive scalars.")
   end
   nvars_new::Int = 5 + n_ps
+  g.n_ps = n_ps
   g.nvars = nvars_new
   # Fill conserved and primitive variables from previous grid
-  # g.cc_cons = resize_arr(g, g.cc_cons, nvars_new)
+  g.cc_cons = resize_arr(g, g.cc_cons, nvars_new)
   g.cc_prim = resize_arr(g, g.cc_prim, nvars_new)
 
   # Left and right interface
-  # g.cons_L = resize_arr(g, g.cons_L, nvars_new)
-  # g.cons_R = resize_arr(g, g.cons_R, nvars_new)
+  g.cons_L = resize_arr(g, g.cons_L, nvars_new)
+  g.cons_R = resize_arr(g, g.cons_R, nvars_new)
   g.prim_L = resize_arr(g, g.prim_L, nvars_new)
   g.prim_R = resize_arr(g, g.prim_R, nvars_new)
 
@@ -182,6 +186,30 @@ function remake_grid!(g::Grid, n_x1::Int, n_x2::Int, n_g::Int, n_ps::Int)
 
   g.lu = resize_arr(g, g.lu, nvars_new)
   g.fhll = resize_arr(g, g.fhll, nvars_new)
+
+  # Views
+  # Cell-centres
+  g.rho::SubArray{Float64} = @view g.cc_prim[:, :, g.i_rho]
+  g.v_x1::SubArray{Float64} = @view g.cc_prim[:, :, g.i_vx1]
+  g.v_x2::SubArray{Float64} = @view g.cc_prim[:, :, g.i_vx2]
+  g.v_x3::SubArray{Float64} = @view g.cc_prim[:, :, g.i_vx3]
+  g.p::SubArray{Float64} = @view g.cc_prim[:, :, g.i_p]
+  g.ps::SubArray{Float64} = @view g.cc_cons[:, :, 6:g.nvars]
+  # Left interface
+  g.rho_L::SubArray{Float64} = @view g.prim_L[:, :, g.i_rho]
+  g.v_x1_L::SubArray{Float64} = @view g.prim_L[:, :, g.i_vx1]
+  g.v_x2_L::SubArray{Float64} = @view g.prim_L[:, :, g.i_vx2]
+  g.v_x3_L::SubArray{Float64} = @view g.prim_L[:, :, g.i_vx3]
+  g.p_L::SubArray{Float64} = @view g.prim_L[:, :, g.i_p]
+  # Right interface
+  g.rho_R::SubArray{Float64} = @view g.prim_R[:, :, g.i_rho]
+  g.v_x1_R::SubArray{Float64} = @view g.prim_R[:, :, g.i_vx1]
+  g.v_x2_R::SubArray{Float64} = @view g.prim_R[:, :, g.i_vx2]
+  g.v_x3_R::SubArray{Float64} = @view g.prim_R[:, :, g.i_vx3]
+  g.p_R::SubArray{Float64} = @view g.prim_R[:, :, g.i_p]
+
+  # @show any(isnan, g.rho)
+  # @show any(isnan, g.p)
   return g
 end
 
@@ -189,20 +217,20 @@ function add_chemical_species!(g::Grid, network_file::String, abundances::Dict)
   # Read chemical network file, create reaction system
   # Add chemical species as passive scalars in alphabetical order
   @info "Reading reaction network..."
-  g.reaction_network = read_network_file(network_file);
-  @show species(g.reaction_network)
+  g.reaction_network = read_network_file(network_file)
+  g.species = str_replace.(species(g.reaction_network))
+  sort!(g.species)
   @info "Adding chemical species to Grid as passive scalars"
-  g = remake_grid!(g, g.n_x1, g.n_x2, g.n_g, length(species(g.reaction_network)))
-  
+  g = remake_grid!(g, g.n_x1, g.n_x2, g.n_g, length(g.species))
+
   # Assign number densities
   @info "Assigning number densities..."
-  for i=1:g.x1_len, j=1:g.x2_len
-    g.cc_prim[i, j, 6:g.nvars] = calculate_number_densities_arr(g.rho[i, j], abundances, str_replace.(species(g.reaction_network)))
+  for i = 1:g.x1_len, j = 1:g.x2_len
+    g.ps[i, j, :] = calculate_number_densities_arr(g.rho[i, j], abundances, g.species)
+  end
+  # Verbose
+  for (k, s) in enumerate(g.species)
+    @debug "$(s): $(minimum(log10.(g.ps[:, :, k]))) $(maximum(log10.(g.ps[:, :, k])))"
   end
   return g
 end
-
-"""
-TODO:
-- Add CRN init for passive scalars
-"""

@@ -39,12 +39,14 @@ function cons2prim!(g::Grid)
   @. g.epsilon = g.E / g.rho - 0.5 * (g.v_x1^2 + g.v_x2^2)
   @. g.p = g.lambda * g.rho * g.epsilon
   @. g.cs = sqrt(g.gamma * g.p / g.rho)
+
   return g
 end
 
 
 """ 2D: Calculate flux from prims (rho, vel, pressure) """
-function calc_flux!(ρ, v_x1, v_x2, v_x3, p, γ::Float64, f_cons_x1, f_cons_x2)
+function calc_flux!(ρ, v_x1, v_x2, v_x3, p, γ::Float64, f_cons_x1, f_cons_x2;
+  ps=nothing)
   @. begin
     # f_cons_x1[:, :, g.i_rho] = ρ * v_x1
     # f_cons_x1[:, :, g.i_rhoun] = ρ * v_x1^2 + p
@@ -61,22 +63,36 @@ function calc_flux!(ρ, v_x1, v_x2, v_x3, p, γ::Float64, f_cons_x1, f_cons_x2)
     f_cons_x1[:, :, 3] = ρ * v_x1 * v_x2
     f_cons_x1[:, :, 4] = ρ * v_x1 * v_x3
     f_cons_x1[:, :, 5] = (p / (γ - 1) + 0.5 * ρ * (v_x1^2 + v_x2^2) + p) * v_x1
+  end
+  if !isnothing(ps)
+    for k = axes(ps, 3)
+      @. f_cons_x1[:, :, 5+k] = ps[:, :, k] * v_x1
+    end
+  end
+
+  @. begin
     f_cons_x2[:, :, 1] = ρ * v_x2
     f_cons_x2[:, :, 2] = ρ * v_x1 * v_x2
     f_cons_x2[:, :, 3] = ρ * v_x2^2 + p
     f_cons_x2[:, :, 4] = ρ * v_x1 * v_x3
     f_cons_x2[:, :, 5] = (p / (γ - 1) + 0.5 * ρ * (v_x1^2 + v_x2^2) + p) * v_x2
   end
+  if !isnothing(ps)
+    for k = axes(ps, 3)
+      @. f_cons_x2[:, :, 5+k] = ps[:, :, k] * v_x2
+    end
+  end
 end
 
-function calc_flux!(ρ, v_x1, v_x2, v_x3, p, γ::Float64)
-  f_cons_x1 = Array{Float64}(undef, size(ρ, 1), 4)
-  f_cons_x2 = Array{Float64}(undef, size(ρ, 1), size(ρ, 2), 4)
-  calc_flux!(ρ, v_x1, v_x2, v_x3, p, γ, f_cons_x1, f_cons_x2)
-  return f_cons_x1, f_cons_x2
-end
+# function calc_flux!(ρ, v_x1, v_x2, v_x3, p, γ::Float64)
+#   # f_cons_x1 = Array{Float64}(undef, size(ρ, 1), 4)
+#   f_cons_x1 = Array{Float64}(undef, size(ρ, 1), size(ρ, 2), 4)
+#   f_cons_x2 = Array{Float64}(undef, size(ρ, 1), size(ρ, 2), 4)
+#   calc_flux!(ρ, v_x1, v_x2, v_x3, p, γ, f_cons_x1, f_cons_x2)
+#   return f_cons_x1, f_cons_x2
+# end
 
-function calc_flux!(g::Grid)
-  calc_flux!(g.rho, g.v_x1, g.v_x2, g.v_x3, g.p, g.gamma, g.f_cons_x1, g.f_cons_x2)
-  return g.f_cons_x1, g.f_cons_x2
-end
+# function calc_flux!(g::Grid)
+#   calc_flux!(g.rho, g.v_x1, g.v_x2, g.v_x3, g.p, g.gamma, g.f_cons_x1, g.f_cons_x2; ps=g.ps)
+#   return g.f_cons_x1, g.f_cons_x2
+# end

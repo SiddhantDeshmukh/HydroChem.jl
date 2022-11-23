@@ -62,26 +62,45 @@ function plot_curve(g::Grid; dim=1, fn="t.png", is_save=true)
   # excluded
   # g1 = twod2oned(g)
   # plot_curve(g1; fn=fn, is_save=is_save)
+  ylabel = ["rho", "p", "vel", "epsilon"]
   if dim == 1
     # Plot x1-direction
     x = g.x1[g.i_x1_a:g.i_x1_b]
-    plot_data = zeros(g.n_x1, 4)
+    n_panels::Int = 4
+    n_panels += g.n_ps
+    plot_data = zeros(g.n_x1, n_panels)
     @. plot_data[:, 1] = g.rho[g.i_x1_a:g.i_x1_b, g.mid_x2]
     @. plot_data[:, 2] = g.p[g.i_x1_a:g.i_x1_b, g.mid_x2]
     @. plot_data[:, 3] = g.v_x1[g.i_x1_a:g.i_x1_b, g.mid_x2]
     @. plot_data[:, 4] = g.epsilon[g.i_x1_a:g.i_x1_b, g.mid_x2]
+    if !isnothing(g.species)
+      for (i, s) in enumerate(g.species)
+        @. plot_data[:, 4+i] = log10.(g.ps[g.i_x1_a:g.i_x1_b, g.mid_x2, i])
+        push!(ylabel, s)
+      end
+    end
   elseif dim == 2
     # Plot x2-direction
     x = g.x2[g.i_x2_a:g.i_x2_b]
-    plot_data = zeros(g.n_x2, 4)
+    n_panels = 4
+    n_panels += g.n_ps
+    plot_data = zeros(g.n_x2, n_panels)
     @. plot_data[:, 1] = g.rho[g.mid_x1, g.i_x2_a:g.i_x2_b]
     @. plot_data[:, 2] = g.p[g.mid_x1, g.i_x2_a:g.i_x2_b]
     @. plot_data[:, 3] = g.v_x2[g.mid_x1, g.i_x2_a:g.i_x2_b]
     @. plot_data[:, 4] = g.epsilon[g.mid_x1, g.i_x2_a:g.i_x2_b]
+    if !isnothing(g.species)
+      for (i, s) in enumerate(g.species)
+        @. plot_data[:, 4+i] = log10.(g.ps[g.mid_x1, g.i_x2_a:g.i_x2_b, i])
+        push!(ylabel, s)
+      end
+    end
   end
-  plot_ = scatter(x, plot_data, layout=4, ms=1, legend=false,
-    xlabel="x", ylabel=["rho" "p" "vel" "epsilon"],
-    xlim=[0, 1],
+  # println("Plotting $(n_panels) panels.")
+  plot_ = scatter(x, plot_data, layout=n_panels, ms=1, legend=false,
+    xlabel="x",
+    # ylabel=ylabel,
+    # xlim=[0, 1],
     # ylim=[(0.0, 1.1), (-0.0, 1.2), (-0.2, 1.0), (1.6, 3.0)],
     dpi=300, title=@sprintf("t = %.04f", g.t))
   if is_save

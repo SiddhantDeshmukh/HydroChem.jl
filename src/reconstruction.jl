@@ -32,12 +32,12 @@ end
 
 """ Interpolate primitive variables (ρ, vx, vy, p, cs) in the x and y components """
 function reconstruct2nd(g::Grid, axis::Int; theta::Float64=1.5)
-  println("Inside reconstruct2nd")
+  @debug "Inside reconstruct2nd"
   cdiff = zero(g.cc_prim)
   if axis == 1
     for k = 1:g.nvars  # reconstruct everything, including passive scalars
       c = @view g.cc_prim[:, :, k]     # c = rho, vx, vy, vz, pressure for k = 1:5
-      @show k, c[g.mid_x1, g.mid_x2]
+      # @show k, c[g.mid_x1, g.mid_x2]
       for j = g.i_x2_a:g.i_x2_b, i = g.i_x1_a-1:g.i_x1_b+1
         cdiff[i, j, k] = 0.5 * minmod(theta * (c[i, j] - c[i-1, j]),
           0.5 * (c[i+1, j] - c[i-1, j]),

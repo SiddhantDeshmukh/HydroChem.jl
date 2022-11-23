@@ -63,10 +63,10 @@ end
 
 # RK3, general
 function RK3(g, dt, solver::Function, reconstruct::Function, rebuild::Function)
-    println("Inside RK3")
+    @debug "Inside RK3"
     uold = copy(g.cc_cons)
     mat = [1.0 0.0 1.0; 0.75 0.25 0.25; 1/3 2/3 2/3]
-    for i = 1:size(mat, 1)
+    for i = axes(mat, 1)
         lu = solver(g, reconstruct)
         # v = @view lu[:, :, 4]
         # println("lu[:, :, 4] = ", maximum(v), " ", minimum(v))

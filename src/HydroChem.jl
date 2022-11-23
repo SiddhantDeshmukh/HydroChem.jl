@@ -106,6 +106,8 @@ function hydro(; n_x1::Int=128, n_x2::Int=1, n_g::Int=2,
   network_file::Union{String,Nothing}=nothing,
   storealldata::Bool=false,
   restart=-1,
+  advect_species=true,
+  solve_chemistry=false,
   islog::Bool=false,
   verbose::Bool=false)
 
@@ -160,25 +162,25 @@ Boundary condition: $(fillbc)
   if restart < 0
     # New simulation
     g = init(g)         # fill I.C. for prims (without boundary)
-    println("Grid initialised")
+    @debug "Grid initialised"
     # Add chemical species
     if !isnothing(network_file)
-      @show size(g.cc_prim)
+      # @show size(g.cc_prim)
       g = add_chemical_species!(g, network_file, mm00_abundances)
-      @show size(g.cc_prim)
-      exit()
+      # @show size(g.cc_prim)
+      # exit()
     end
     # @show g.cc_prim[g.mid_x1, g.mid_x2, :]
     g = prim2cons!(g)
-    println("prim2cons! done")
+    @debug "prim2cons! done"
     # @show g.cc_prim[g.mid_x1, g.mid_x2, :]
     fillbc(g)
-    println("fillbc done")
+    @debug "fillbc done"
     # @show g.cc_prim[g.mid_x1, g.mid_x2, :]
     g = cons2prim!(g)
-    println("cons2prim! done")
+    @debug "cons2prim! done"
     # @show g.cc_prim[g.mid_x1, g.mid_x2, :]
-    println("Problem fully initialised.")
+    @debug "Problem fully initialised."
     fcount = 0
     run(`mkdir -p $(datadir)`)
     if storealldata
@@ -220,21 +222,18 @@ Boundary condition: $(fillbc)
       dt = calc_dt(g; C=0.8)
       if isnan(dt)
         println("Failed at count = $(count), t = $(g.t): dt = $(dt)")
-        # println()
-        # v = @view g.u[:, :, 4]
-        # println(maximum(v), " ", minimum(v))
-        # println()
-        # v = g.cs
-        # println(maximum(v), " ", minimum(v))
-        # println()
-        # v = g.pressure
-        # println(maximum(v), " ", minimum(v))
-        # println()
-        # v = g.epsilon
-        # println(maximum(v), " ", minimum(v))
-        # println()
-        # v = g.E
-        # println(maximum(v), " ", minimum(v))
+        v = g.rho
+        println(maximum(v), " ", minimum(v))
+        v = @view g.cc_prim[:, :, g.i_rho]
+        println(maximum(v), " ", minimum(v))
+        v = g.cs
+        println(maximum(v), " ", minimum(v))
+        v = g.p
+        println(maximum(v), " ", minimum(v))
+        v = g.epsilon
+        println(maximum(v), " ", minimum(v))
+        v = g.E
+        println(maximum(v), " ", minimum(v))
         return
       end
       @info "count = $(count), t = $(g.t), dt = $(dt)"
@@ -253,14 +252,14 @@ Boundary condition: $(fillbc)
         if !(error == nothing)
           msg = msg * ", relative error = $(error)"
         end
-        print(msg * "\n")
+        # print(msg * "\n")
         if islog
           write(fw, msg * "\n")
         end
         if storealldata || (g.t > tend || g.t ≈ tend)
           # write jld data
-          fn = "$(datadir)/hydro_$(lpad(fcount, 5, '0')).jld"
-          grid_write(g, fn)
+          # fn = "$(datadir)/hydro_$(lpad(fcount, 5, '0')).jld"
+          # grid_write(g, fn)
         end
         if g.t > tend || g.t ≈ tend
           break
@@ -292,11 +291,13 @@ end
 
 end
 
-HydroChem.hydro(n_x1=128, folder="test", network_file="../res/solar_co_w05.ntw")
+HydroChem.hydro(n_x1=128, folder="test",
+  network_file="../res/solar_co_w05.ntw",
+  # network_file=nothing,
+)
 
 """
 Current issues:
   - Change arrays to be arr[quantity, y_idx, x_idx] to exploit column-major
     operations
-  - Views in Grid don't seem to update the original array in Grid!
 """
