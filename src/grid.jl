@@ -1,6 +1,8 @@
 using Parameters
+using Catalyst, DifferentialEquations, ModelingToolkit
 
 include("jcrn.jl")
+include("constants.jl")
 
 @with_kw mutable struct Grid
   # 2D finite-volume Grid to hold all quantities
@@ -12,7 +14,8 @@ include("jcrn.jl")
   mid_x1::Int64 = floor(Int64, x1_len / 2)
   mid_x2::Int64 = floor(Int64, x2_len / 2)
   n_ps::Int64 = 0  # number of passive scalars
-  nvars::Int = 5 + n_ps # (rho, ux1, ux2, ux3, p) + passive scalars
+  nvars_f::Int = 5  # number of fluid variables
+  nvars::Int = nvars_f + n_ps # (rho, ux1, ux2, ux3, p) + passive scalars
 
   # Spatial domain (without ghost cells)
   min_x1::Float64 = 0.0
@@ -20,8 +23,11 @@ include("jcrn.jl")
   min_x2::Float64 = 0.0
   max_x2::Float64 = 1.0
   t::Float64 = 0.0
+  # Parameters of the fluid
   gamma::Float64 = 1.4
   lambda::Float64 = gamma - 1
+  mu::Float64 = 1.67e-24  # mean molecular weight in [g] (atomic H)
+  # mu::Float64 = 3.8e-24  # mean molecular weight in [g] (mol H and atomic He)
 
   # Grid spacing
   dx1::Float64 = (max_x1 - min_x1) / n_x1
@@ -39,9 +45,9 @@ include("jcrn.jl")
   # Primitive: (rho, ux1, ux2, ux3, p)
   cc_prim::Array{Float64,3} = zeros(Float64, x1_len, x2_len, nvars)
   # Sound speed, energy, epsilon
-  cs = zeros(x1_len, x2_len)
-  E = zero(cs)
-  epsilon = zero(cs)
+  cs = zeros(x1_len, x2_len)  # sound speed
+  E = zero(cs)  # energy (internal + kinetic)
+  epsilon = zero(cs)  # specific internal energy
 
   # Left and right interface
   cons_L::Array{Float64,3} = zero(cc_cons)
@@ -123,12 +129,12 @@ include("jcrn.jl")
   p_R::SubArray{Float64} = @view prim_R[:, :, i_p]
 
   # Passive scalars
-  ps::SubArray{Float64} = @view cc_prim[:, :, 6:nvars]
+  ps::SubArray{Float64} = @view cc_prim[:, :, nvars_f+1:nvars]
 
   # Chemistry (initialised with functions afterwards)
   # TODO: Make a mutable struct to hold this and access that
   network_file::Union{String,Nothing} = nothing
-  reaction_network::Union{ReactionSystem,Nothing} = nothing
+  reaction_sys::Union{ODESystem,Nothing} = nothing
   species::Union{Array,Nothing} = nothing
   chem_ode_prob::Union{ODEProblem,Nothing} = nothing
 end
@@ -194,7 +200,7 @@ function remake_grid!(g::Grid, n_x1::Int, n_x2::Int, n_g::Int, n_ps::Int)
   g.v_x2::SubArray{Float64} = @view g.cc_prim[:, :, g.i_vx2]
   g.v_x3::SubArray{Float64} = @view g.cc_prim[:, :, g.i_vx3]
   g.p::SubArray{Float64} = @view g.cc_prim[:, :, g.i_p]
-  g.ps::SubArray{Float64} = @view g.cc_cons[:, :, 6:g.nvars]
+  g.ps::SubArray{Float64} = @view g.cc_cons[:, :, g.nvars_f+1:g.nvars]
   # Left interface
   g.rho_L::SubArray{Float64} = @view g.prim_L[:, :, g.i_rho]
   g.v_x1_L::SubArray{Float64} = @view g.prim_L[:, :, g.i_vx1]
@@ -208,16 +214,22 @@ function remake_grid!(g::Grid, n_x1::Int, n_x2::Int, n_g::Int, n_ps::Int)
   g.v_x3_R::SubArray{Float64} = @view g.prim_R[:, :, g.i_vx3]
   g.p_R::SubArray{Float64} = @view g.prim_R[:, :, g.i_p]
 
-  # @show any(isnan, g.rho)
-  # @show any(isnan, g.p)
   return g
+end
+
+function calculate_temperature!(g::Grid, temperature)
+  # Calculate temperature from EOS for every grid cell
+  # T = (gamma - 1) * mu * epsilon / k_B
+  @. temperature = (g.gamma - 1) * g.mu * g.epsilon / k_B
+  return temperature
 end
 
 function add_chemical_species!(g::Grid, network_file::String, abundances::Dict)
   # Read chemical network file, create reaction system
   # Add chemical species as passive scalars in alphabetical order
   @info "Reading reaction network..."
-  g.reaction_network = read_network_file(network_file)
+  rn = read_network_file(network_file)
+  g.reaction_sys = convert(ODESystem, rn; combinatoric_ratelaws=false)
   g.species = str_replace.(species(g.reaction_network))
   sort!(g.species)
   @info "Adding chemical species to Grid as passive scalars"
@@ -233,4 +245,32 @@ function add_chemical_species!(g::Grid, network_file::String, abundances::Dict)
     @debug "$(s): $(minimum(log10.(g.ps[:, :, k]))) $(maximum(log10.(g.ps[:, :, k])))"
   end
   return g
+end
+
+function init_ode_prob!(g::Grid)
+  temperature = zero(g.E)
+  u0vals = view(g.ps[1, 1, :])
+  u0 = Pair.(g.species, u0vals)
+  g.chem_ode_prob = ODEProblem(g.reaction_sys, u0, (1e-8, 1e6),)
+end
+
+function init_chemistry(g::Grid, network_file::String, abundances::Dict)
+  # Add all species as passive scalars (number densities) to grid and initialise
+  # chemical ODE problem using JCRN
+  add_chemical_species!(g, network_file, abundances)
+  init_ode_prob!(g)
+end
+
+function evolve_chemistry!(g::Grid, dt)
+  # Uses Threads!
+  # Evolve the number densities for each grid cell for 'dt'
+  # Assumes that 'g.ps' species are stored map to g.species directly
+  # and that ODEProblem is already initialised
+
+  # Loop over grid cells, for each cell:
+  # 1. calculate temperature from EOS
+  # 2. remake ODEPROB with temperature
+  # 3. evolve chemistry for specified 'dt'
+  # 4. overwrite 'ps' number densities
+  #   - would be good if JCRN can update these in-place so we don't assign
 end

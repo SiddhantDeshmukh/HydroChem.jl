@@ -62,8 +62,10 @@ function RK2new(g, dt, solver::Function, reconstruct::Function, rebuild::Functio
 end
 
 # RK3, general
-function RK3(g, dt, solver::Function, reconstruct::Function, rebuild::Function)
+function RK3(g, dt, solver::Function, reconstruct::Function, rebuild::Function;
+    evolve_chemistry=false)
     @debug "Inside RK3"
+    # Hydro step
     uold = copy(g.cc_cons)
     mat = [1.0 0.0 1.0; 0.75 0.25 0.25; 1/3 2/3 2/3]
     for i = axes(mat, 1)
@@ -73,10 +75,13 @@ function RK3(g, dt, solver::Function, reconstruct::Function, rebuild::Function)
         @. g.cc_cons = mat[i, 1] * uold + mat[i, 2] * g.cc_cons + mat[i, 3] * dt * lu
         rebuild(g)
     end
+    # Chemistry step
+    evolve_chemistry!(g, dt)
     g.t += dt
 end
 
 """
 TODO:
 - Embed JCRN calls after each hydro time step
+    - At the moment, only first order, no e.g. Strang splitting
 """

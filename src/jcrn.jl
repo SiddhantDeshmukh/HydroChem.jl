@@ -4,13 +4,13 @@
 using Catalyst, DifferentialEquations, ModelingToolkit
 using DelimitedFiles, DataStructures
 
-arrhenius(a::Float64, b::Float64, c::Float64, T) = @. a * (T / 300.)^b * exp(-c / T)
+arrhenius(a::Float64, b::Float64, c::Float64, T) = @. a * (T / 300.0)^b * exp(-c / T)
 str_replace(term::Term; token="(t)", replacement="") = replace(string(term), token => replacement)
 
 function number_densities_to_sorted_array(number_densities::Dict, species_arr::Array)
   # Convert number densities Dict into an alphabetically-indexed array including
   # only specified species
-  sort!(species_arr);
+  sort!(species_arr)
   n::Array{Float64} = zeros(Float64, length(species_arr))
   for (i, s) in enumerate(species_arr)
     n[i] = number_densities[s]
@@ -20,8 +20,8 @@ function number_densities_to_sorted_array(number_densities::Dict, species_arr::A
 end
 
 function calculate_number_densities(gas_density, abundances::Dict)
-  abu_eps_lin = Dict([k => 10. ^(v - 12.) for (k, v) in abundances])
-  abundances_linear = Dict([k => 10. ^v for (k, v) in abundances])
+  abu_eps_lin = Dict([k => 10.0^(v - 12.0) for (k, v) in abundances])
+  abundances_linear = Dict([k => 10.0^v for (k, v) in abundances])
   total_abundances = sum(values(abundances_linear))
   abundances_ratio = Dict([k => v / total_abundances for (k, v) in abundances_linear])
   h_number_density = gas_density / mass_hydrogen * abundances_ratio["H"]
@@ -36,10 +36,10 @@ end
 function str_to_arrhenius(rxn_str::String)
   # Read Arrhenius rate and return alpha, beta, gamma, i.e.
   # r(T) = alpha * (Tgas/300)**beta * exp(-gamma / Tgas)
-  function constants_from_part(part:: String; alpha=0., beta=0., gamma=0.)
+  function constants_from_part(part::String; alpha=0.0, beta=0.0, gamma=0.0)
     if isdigit(strip(part)[1])
       alpha = parse(Float64, replace(part, "d" => "e"))
-    elseif  '^' in part
+    elseif '^' in part
       beta = parse(Float64, replace(replace(split(part, '^')[end], '(' => ""), ')' => ""))
     elseif startswith(strip(part), "exp")
       # Note minus sign: 'rate' has '-gamma' in it because of Arrhenius form
@@ -48,7 +48,7 @@ function str_to_arrhenius(rxn_str::String)
     return alpha, beta, gamma
   end
 
-  alpha, beta, gamma = 0., 0., 0.
+  alpha, beta, gamma = 0.0, 0.0, 0.0
   # Change '**' to '^' for a unique identifier
   rate = replace(rxn_str, "**" => '^')
   if contains(rate, "*")
@@ -56,12 +56,12 @@ function str_to_arrhenius(rxn_str::String)
     for part in parts
       part = replace(string(part), 'd' => 'e')
       alpha, beta, gamma = constants_from_part(part;
-                                               alpha=alpha, beta=beta, gamma=gamma)
+        alpha=alpha, beta=beta, gamma=gamma)
     end
   else
     rate = replace(string(rate), 'd' => 'e')
     alpha, beta, gamma = constants_from_part(rate;
-                                            alpha=alpha, beta=beta, gamma=gamma)
+      alpha=alpha, beta=beta, gamma=gamma)
   end
 
   return alpha, beta, gamma
@@ -147,6 +147,20 @@ function read_network_file(network_file::String)
   end
   @named rn = ReactionSystem(reactions, t)
   return rn
+end
+
+function evolve_system(odesys, u0, tspan, p, solver; prob=nothing)
+  if (isnothing(prob))
+    prob = ODEProblem(odesys, u0, tspan, p)
+    de = modelingtoolkitize(prob)
+    prob = ODEProblem(de, [], tspan, jac=true)
+    sol = solve(prob, solver; save_everystep=false)
+    return prob, sol
+  else
+    # Have to assign here otherwise it doesn't update
+    prob = remake(prob; u0=u0, p=p, tspan=tspan)
+    return solve(prob, solver; save_everystep=false)[end]
+  end
 end
 
 """

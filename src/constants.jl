@@ -1,0 +1,1 @@
+k_B::Float64 = 1.38e-16  # Boltzmann constant [erg/K]
